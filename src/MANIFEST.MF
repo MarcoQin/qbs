@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Class-Path: lib/ffmpeg-macosx-x86_64.jar lib/ffmpeg.jar lib/javacpp.jar lib/javacv.jar lib/opencv-macosx-x86_64.jar lib/opencv.jar
+Main-Class: ScreenGrabber
+
+

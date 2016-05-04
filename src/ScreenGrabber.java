@@ -1,76 +1,210 @@
 import java.awt.Dimension;
 import java.awt.Toolkit;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Set;
 
 import org.bytedeco.javacv.*;
+
+import com.sun.prism.Image;
+
 import org.bytedeco.javacpp.*;
 //ffmpeg -f avfoundation -r 30 -i "1:" -s 1280x720 -q:v 1 output.flv
-public class ScreenGrabber {
-    private static Frame grabbedFrame;
+
+
+public class ScreenGrabber{
+	private static Frame grabbedFrame;
 
 	public static void main(String[] args) throws Exception {
+		Controller controller = new Controller();
+		Settings settings = controller.getSettings();
+
+
     	Toolkit kit = Toolkit.getDefaultToolkit();
     	Dimension screenSize = kit.getScreenSize();
     	int screenWidth = screenSize.width;
     	int screenHeight = screenSize.height;
-//    	screenWidth = 1920;
-//    	screenHeight = 1200;
-    	double frameRate = 15.0;
-//    	frameRate = 30.0;
-//        FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(":0.0+" + x + "," + y);
-        FFmpegFrameGrabber grabber = new FFmpegFrameGrabber("1:0");
-        
-//        grabber.setFormat("x11grab");
+
+    	double frameRate = Double.parseDouble(settings.getProperty("frameRate"));
+        FFmpegFrameGrabber grabber = new FFmpegFrameGrabber("1:");
         grabber.setFormat("avfoundation");
         grabber.setFrameRate(frameRate);
-//        grabber.setVideoBitrate(2500000);
-//        grabber.setVideoOption("q:v", "1");
-//        grabber.delayedGrab(1);
-//        grabber.setPixelFormat(org.bytedeco.javacpp.avutil.AV_PIX_FMT_YUV420P);
-//        grabber.setVideoCodec(org.bytedeco.javacpp.avcodec.AV_CODEC_ID_H264);
         grabber.setImageWidth(screenWidth);
         grabber.setImageHeight(screenHeight);
         grabber.start();
-        
-        int outWidth = 1280;
-        int outHeight = 800;
-        
-        String outputFileName = "rtmp://127.0.0.1:7776/flvplayback/test";
-//        String outputFileName = "/Users/qinyuan/Codes/output.flv";
-//        FrameRecorder recorder = FrameRecorder.createDefault("/Users/qinyuan/Codes/output.mp4", screenWidth, screenHeight);
-        FFmpegFrameRecorder recorder = FFmpegFrameRecorder.createDefault(outputFileName, outWidth, outHeight);
-        recorder.setFormat("flv");
-        recorder.setFrameRate(frameRate);
-        recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
-//        recorder.setVideoQuality(0); // 千万不要设置高质量。。花的你不要不要的。。
-//        recorder.setGopSize(60);
-        recorder.setVideoOption("x264opts", "keyint=25:min-keyint=25:scenecut=-1");
-        recorder.setVideoOption("preset", "fast");
-        recorder.setVideoOption("threads", "0");
-        
-        
-        recorder.setAudioCodec(org.bytedeco.javacpp.avcodec.AV_CODEC_ID_AAC);
-        recorder.setAudioChannels(2);
-//        recorder.setAudioBitrate(128000);
-//        recorder.setAudioOption("b:a", "128k");
-//        recorder.setVideoBitrate(800000);
-//        recorder.setVideoBitrate(1200000);
-//          recorder.setVideoBitrate(2500000);
-//        recorder.setPixelFormat(org.bytedeco.javacpp.avutil.AV_PIX_FMT_YUV420P);
-//        recorder.setPixelFormat(org.bytedeco.javacpp.avutil.AV_PIX_FMT_RGB32);
-//        recorder.setPixelFormat(org.bytedeco.javacpp.avutil.AV_PIX_FMT_UYVY422);
-        
-        recorder.start();
-
         CanvasFrame frame = new CanvasFrame("Screen Capture", CanvasFrame.getDefaultGamma()/grabber.getGamma());
-       
-        frame.setSize((int)(screenWidth / 2), (int)(screenHeight / 2));
+        frame.setCanvasSize(screenWidth/2, screenHeight/2);
+        frame.setController(controller);
         while (frame.isVisible()) {
         	grabbedFrame = grabber.grab();
             frame.showImage(grabbedFrame);
-//            recorder.record(grabbedFrame);
+            controller.recorder(grabbedFrame);
         }
         frame.dispose();
-        recorder.stop();
+        controller.clean();
         grabber.stop();
     }
+}
+
+
+class Recorder
+{
+	public static FFmpegFrameRecorder getRecorder(String outputFileName, double frameRate, int outWidth, int outHeight) {
+        FFmpegFrameRecorder recorder = null;
+		try {
+			recorder = FFmpegFrameRecorder.createDefault(outputFileName, outWidth, outHeight);
+			recorder.setFormat("flv");
+
+	        recorder.setFrameRate(frameRate);
+
+//	        recorder.setVideoOption("crf", "28"); //where 0 is lossless, 23 is default
+
+	        recorder.setVideoOption("tune", "zerolatency");
+	        recorder.setVideoOption("preset", "fast");
+	        recorder.setVideoOption("fflags", "nobuffer");
+	        recorder.setVideoOption("analyzeduration", "0");
+
+
+	        recorder.setVideoCodec(avcodec.AV_CODEC_ID_H264);
+//	        recorder.setVideoQuality(0); // 千万不要设置高质量。。花的你不要不要的。。
+	        recorder.setVideoOption("x264opts", "keyint=25:min-keyint=25:scenecut=-1");
+
+	        recorder.setVideoOption("threads", "0");
+
+
+
+//	        recorder.setAudioCodec(org.bytedeco.javacpp.avcodec.AV_CODEC_ID_AAC);
+//	        recorder.setAudioChannels(2);
+	        return recorder;
+		} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			return null;
+		}
+	}
+}
+
+class Controller
+{
+
+    private static Settings settings = Settings.getSettingInstance();
+    private static FFmpegFrameRecorder rtmpRecorder = null;
+    private static FFmpegFrameRecorder fileRecorder = null;
+    private static int isStreaming = 0;
+    private static int isRecording = 0;
+
+    public int getStreamingState() {
+		return isStreaming;
+	}
+
+    public int getRecordingState() {
+		return isRecording;
+	}
+
+    public Settings getSettings()
+    {
+    	return settings;
+    }
+
+    public void recorder(Frame frame) throws org.bytedeco.javacv.FrameRecorder.Exception {
+		if (isStreaming == 1){
+			rtmpRecorder.record(frame);
+		}
+		if (isRecording == 1){
+			fileRecorder.record(frame);
+		}
+	}
+
+    public void startFileRecorder() {
+    	String outputFile = settings.getProperty("outputFile");
+    	double frameRate = Double.parseDouble(settings.getProperty("frameRate"));
+    	int outWidth = Integer.parseInt(settings.getProperty("outputWidth"));
+        int outHeight = Integer.parseInt(settings.getProperty("outputHeight"));
+        if (outputFile != null)
+        {
+        	Date now = new Date();
+            SimpleDateFormat ft = new SimpleDateFormat ("yyyyMMdd-HHmmss");
+            if (!outputFile.endsWith("/")){
+            	outputFile = outputFile + "/";
+            }
+        	String outputFileName = outputFile + ft.format(now) + ".flv";
+        	System.out.println(outputFileName);
+        	fileRecorder = Recorder.getRecorder(outputFileName, frameRate, outWidth, outHeight);
+        	if (fileRecorder != null){
+            	try {
+					fileRecorder.start();
+					isRecording = 1;
+				} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+            }
+        }
+	}
+
+    public void stopFileRecorder() {
+    	isRecording = 0;
+		if (fileRecorder != null){
+			try {
+				fileRecorder.stop();
+			} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			fileRecorder = null;
+		}
+	}
+
+    public void startRtmpRecorder() {
+    	String url = settings.getProperty("url");
+    	double frameRate = Double.parseDouble(settings.getProperty("frameRate"));
+    	int outWidth = Integer.parseInt(settings.getProperty("outputWidth"));
+        int outHeight = Integer.parseInt(settings.getProperty("outputHeight"));
+        if (url != null)
+        {
+        	rtmpRecorder = Recorder.getRecorder(url, frameRate, outWidth, outHeight);
+        }
+
+        if (rtmpRecorder != null){
+        	try {
+				rtmpRecorder.start();
+				isStreaming = 1;
+			} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+	}
+
+    public void stopRtmpRecorder() {
+    	isStreaming = 0;
+		if (rtmpRecorder != null){
+			try {
+				rtmpRecorder.stop();
+			} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			rtmpRecorder = null;
+		}
+	}
+
+    public void clean() {
+    	if (rtmpRecorder != null){
+        	try {
+				rtmpRecorder.stop();
+			} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+        if (fileRecorder != null){
+        	try {
+				fileRecorder.stop();
+			} catch (org.bytedeco.javacv.FrameRecorder.Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+	}
 }
